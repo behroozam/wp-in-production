@@ -1,0 +1,6 @@
+{
+    "name": "ericlbarnes/wp",
+    "require": {
+      "vlucas/phpdotenv": "^2.2"
+    }
+  }

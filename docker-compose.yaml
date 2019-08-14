@@ -1,0 +1,94 @@
+version: '3'
+services:
+
+  # wordpress Service
+  wordpress:
+    build:
+      context: ./.
+      dockerfile: Dockerfile
+    env_file: .env
+    entrypoint: /docker-compose-entrypoint.sh
+    restart: unless-stopped
+    tty: true
+    environment:
+      SERVICE_NAME: wordpress
+      SERVICE_TAGS: dev
+    working_dir: /var/www
+    volumes:
+      - wp-files:/var/www/html/
+    networks:
+      - app-network
+
+  #Nginx Service
+  webserver:
+    image: nginx:alpine
+    container_name: webserver
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - wp-files:/var/www/html/
+      - ./nginx/conf.d/:/etc/nginx/conf.d/
+    networks:
+      - app-network
+
+  #MariaDb Service
+  db:
+    image: mariadb
+    container_name: db
+    env_file: .env
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mariadb
+    volumes:
+      - dbdata:/var/lib/mysql/
+    networks:
+      - app-network
+# phpMyadmin web client 
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    env_file: .env
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: ${DB_HOST}
+      PMA_USER: ${MYSQL_USER}
+      PMA_PASSWORD: ${MYSQL_PASSWORD}
+    networks:
+      - app-network
+
+# redis server 
+
+  redis:
+    image: redis
+    container_name: redis
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "6379"
+    networks:
+      - app-network
+
+#Docker Networks
+networks:
+  app-network:
+    driver: bridge
+#Volumes
+volumes:
+  dbdata:
+    driver: local
+  wp-files:
+    driver: local
