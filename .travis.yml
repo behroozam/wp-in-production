@@ -1,0 +1,11 @@
+dist: trusty
+env:
+  - TAG=php7.3
+jobs:
+  include:
+    - stage: build and push docker image
+      script:
+        - docker build -t behroozam/wp-in-production:${TAG} -t behroozam/wp-in-production:latest .
+        - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+        - docker push behroozam/wp-in-production:${TAG} 
+        - docker push behroozam/wp-in-production:latest
