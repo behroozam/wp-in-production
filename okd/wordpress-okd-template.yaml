@@ -1,0 +1,247 @@
+apiVersion: v1
+kind: Template
+message: |-
+  Your wordpress blog has been successfully created :
+        Name: ${WORDPRESS_NAMESPACE}
+metadata:
+  name: wordpress
+parameters:
+- name: WORDPRESS_NAMESPACE
+  displayname: Wordpress blog name
+  required: true  
+- name: WORDPRESS_STORAGE
+  displayName: wordpress Persistant Volume Claim size.
+  value: 5Gi
+  required: true
+- name: WORDPRESS_MEMORY
+  displayName: Memoy for WORDPRESS pod
+  description: Size in Mi.
+  value: 200Mi
+  required: true
+- name: WORDPRESS_USER
+  description: The username of database 
+  required: true
+- name: WORDPRESS_PASSWORD
+  description: The password of database 
+  required: true
+- name: WORDPRESS_DATABASE_NAME
+  description: The name of database
+  value: wp
+  required: true
+- name: WORDPRESS_DATABASE_HOST
+  description: The servicename or ip of database
+  required: true
+
+
+objects:
+  - apiVersion: apps.openshift.io/v1
+    kind: DeploymentConfig
+    metadata:
+      labels:
+        app: wordpress
+      name: wordpress
+    spec:
+      replicas: 1
+      selector:
+        app: wordpress
+        deploymentconfig: wordpress
+      strategy:
+        activeDeadlineSeconds: 21600
+        resources: {}
+        rollingParams:
+          intervalSeconds: 1
+          maxSurge: 25%
+          maxUnavailable: 25%
+          timeoutSeconds: 600
+          updatePeriodSeconds: 1
+      template:
+        metadata:
+          labels:
+            app: wordpress
+            deploymentconfig: wordpress
+        spec:
+          containers:
+            - image: 'behroozam/wp-in-production:php7.3'
+              env:
+              - name: MYSQL_USER
+                valueFrom:
+                  secretKeyRef:
+                    key: user
+                    name: wordpress-cred
+              - name: MYSQL_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    key: password
+                    name: wordpress-cred
+              - name: MYSQL_DATABASE
+                valueFrom:
+                  secretKeyRef:
+                    key: databasename
+                    name: wordpress-cred
+              - name: DB_HOST
+                valueFrom:
+                  secretKeyRef:
+                    key: host
+                    name: wordpress-cred
+              lifecycle:
+                postStart:
+                  exec:
+                    command: ["/bin/sh", "-c", "cp -r /server/http/public/. /var/www/html && touch /var/www/html/.env && fix-permission "]
+              imagePullPolicy: Always
+              name: wordpress
+              ports:
+                - containerPort: 9000
+                  protocol: TCP
+              readinessProbe:
+                tcpSocket:
+                  port: 9000
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                tcpSocket:
+                  port: 9000
+                initialDelaySeconds: 15
+                periodSeconds: 20
+              resources:
+                limits:
+                  memory: "${WORDPRESS_MEMORY}"
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              volumeMounts:
+                - mountPath: /var/www/html/wp-content
+                  name: wp-content-wordpress
+                - mountPath: /var/www/html
+                  name: shared-files
+            - image: 'nginxinc/nginx-unprivileged'
+              name: nginx
+              ports:
+                - containerPort: 8080
+                  protocol: TCP
+              readinessProbe:
+                httpGet:
+                  path: /
+                  port: 8080
+                initialDelaySeconds: 10
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /
+                  port: 8080
+                initialDelaySeconds: 10
+                periodSeconds: 10
+              volumeMounts:
+                - mountPath: /var/www/html
+                  name: shared-files
+                - mountPath: /etc/nginx/nginx.conf
+                  subPath: nginx.conf
+                  name: nginx-config-volume
+          volumes:
+            - name: wp-content-wordpress
+              persistentVolumeClaim:
+                claimName: wp-content-wordpress
+            - name: shared-files
+              emptyDir: {}
+            - name: nginx-config-volume
+              configMap:
+                name: nginx-config
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app: wordpress
+      name: wordpress
+    spec:
+      ports:
+        - name: 80-tcp
+          port: 80
+          protocol: TCP
+          targetPort: 8080
+      selector:
+        deploymentconfig: wordpress
+      sessionAffinity: None
+      type: ClusterIP
+
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      labels:
+        app: wordpress
+      finalizers:
+        - kubernetes.io/pvc-protection
+      name: wp-content-wordpress
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: ${WORDPRESS_STORAGE}
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: wordpress-cred
+    type: Opaque
+    stringData:
+      user: "${WORDPRESS_USER}"
+      password: "${WORDPRESS_PASSWORD}"
+      databasename: "${WORDPRESS_DATABASE_NAME}"
+      host: "${WORDPRESS_DATABASE_HOST}"
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: nginx-config
+    data:
+      nginx.conf: |
+        worker_processes  auto;
+        error_log  /var/log/nginx/error.log warn;
+        pid        /tmp/nginx.pid;
+
+        events {
+        }
+        http {
+                proxy_temp_path /tmp/proxy_temp;
+                client_body_temp_path /tmp/client_temp;
+                fastcgi_temp_path /tmp/fastcgi_temp;
+                uwsgi_temp_path /tmp/uwsgi_temp;
+                scgi_temp_path /tmp/scgi_temp;
+                include       /etc/nginx/mime.types;
+                default_type  application/octet-stream;
+                log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                                  '$status $body_bytes_sent "$http_referer" '
+                                  '"$http_user_agent" "$http_x_forwarded_for"';
+
+                access_log  /var/log/nginx/access.log  main;
+                sendfile        on;
+                #tcp_nopush     on;
+                keepalive_timeout  65;
+                gzip  on;
+          server {
+            listen 8080 default_server;
+            listen [::]:8080 default_server;
+
+            # Set nginx to serve files from the shared volume!
+            root /var/www/html/;
+            server_name _;
+
+            index index.php;
+
+            location / {
+              include  /etc/nginx/mime.types;
+              try_files $uri /index.php?$query_string;
+            }
+
+            location = /favicon.ico { log_not_found off; access_log off; }
+            location = /robots.txt  { access_log off; log_not_found off; }
+
+            sendfile off;
+
+            client_max_body_size 100m;
+
+            location ~ \.php$ {
+              include fastcgi_params;
+              fastcgi_index index.php;
+              fastcgi_param REQUEST_METHOD $request_method;
+              fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+              fastcgi_pass 127.0.0.1:9000;
+            }
+          }
+        }
