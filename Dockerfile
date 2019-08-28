@@ -47,7 +47,7 @@ COPY --from=vendor /app/vendor/ /server/http/public/vendor/
 COPY ./fix-permission /bin/
 COPY ./wp-config-sample.php /server/http/public/wp-config.php
 COPY ./docker-compose-entrypoint.sh /docker-compose-entrypoint.sh
-RUN chmod +x /docker-compose-entrypoint.sh
+RUN chmod +x /docker-compose-entrypoint.sh && touch .env /server/http/public/
 
 # uncomment this lines if you dont want to use redis as session handler 
 
