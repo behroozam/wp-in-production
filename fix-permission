@@ -1,2 +1,2 @@
 #!/bin/sh
-find /var/www/html -not -path "./wp-content/*" -exec chown -R nobody:www-data {} \; && find /var/www/html  -type f -not -path "./wp-content/*" -exec chmod 664 {} \; && find /var/www/html -not -path "./wp-content/*" -type d -exec chmod 775 {} \;
+find /var/www/html -not -path "/var/www/html/wp-content/*" -exec chown -R nobody:www-data {} \; && find /var/www/html  -type f -not -path "./var/www/html/wp-content/*" -exec chmod 664 {} \; && find /var/www/html -not -path "/var/www/html/wp-content/*" -type d -exec chmod 775 {} \;
