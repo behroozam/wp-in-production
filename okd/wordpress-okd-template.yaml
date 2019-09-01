@@ -1,155 +1,284 @@
 apiVersion: v1
 kind: Template
-message: |-
-  Your wordpress blog has been successfully created :
-        Name: ${WORDPRESS_NAMESPACE}
 metadata:
-  name: wordpress
+  name: wordpress-blog
+  annotations:
+    description: Wordpress and MariaDB.
+    iconClass: icon-wordpress
+    tags: wordpress, MariaDB
+message: |-
+  Your wordpress blog has been successfully created
 parameters:
-- name: WORDPRESS_NAMESPACE
-  displayname: Wordpress blog name
-  required: true  
-- name: WORDPRESS_STORAGE
-  displayName: wordpress Persistant Volume Claim size.
-  value: 5Gi
+
+- name: SERVICE_NAME
+  displayName: Service Name
+  description: The name used when creating the required deployment config, route, service etc
+    Must be unique and contain only lower-case letters.
   required: true
+  value: blog
+
+- name: WORDPRESS_IMAGE_VERSION
+  displayName: wordpress Docker image Version.
+  value: latest
+  required: true  
+
 - name: WORDPRESS_MEMORY
   displayName: Memoy for WORDPRESS pod
   description: Size in Mi.
   value: 200Mi
   required: true
+
 - name: WORDPRESS_USER
   description: The username of database 
   required: true
+
 - name: WORDPRESS_PASSWORD
   description: The password of database 
   required: true
+
 - name: WORDPRESS_DATABASE_NAME
   description: The name of database
   value: wp
   required: true
-- name: WORDPRESS_DATABASE_HOST
-  description: The servicename or ip of database
+
+- name: WORDPRESS_VOLUME_CAPACITY
+  displayName: Wordpress Volume Capacity
+  description: Volume space available for WordPress source code and content, e.g. 2Gi, 5Gi.
   required: true
+  value: 2Gi
+
+- name: MYSQL_VOLUME_CAPACITY
+  displayName: MySQL Volume Capacity
+  description: Volume space available for MySQL data, e.g. 2Gi, 5Gi.
+  required: true
+  value: 1Gi
 
 
 objects:
-  - apiVersion: apps.openshift.io/v1
+  # PersistentVolumeClaim: wordpress
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: ${SERVICE_NAME}-wordpress
+#      annotations:
+#        volume.beta.kubernetes.io/storage-class: glusterfs-storage-nocache
+#        volume.beta.kubernetes.io/storage-provisioner: kubernetes.io/glusterfs
+#      finalizers:
+#      - kubernetes.io/pvc-protection
+    spec:
+#      storageClassName: glusterfs-storage-nocache
+      accessModes:
+      - ReadWriteMany
+      resources:
+        requests:
+          storage: ${WORDPRESS_VOLUME_CAPACITY}
+
+  # PersistentVolumeClaim: mysql
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: ${SERVICE_NAME}-mysql
+#      annotations:
+#        volume.beta.kubernetes.io/storage-class: glusterfs-storage-nocache
+#        volume.beta.kubernetes.io/storage-provisioner: kubernetes.io/glusterfs
+#      finalizers:
+#      - kubernetes.io/pvc-protection
+    spec:
+#      storageClassName: glusterfs-storage-nocache
+      accessModes:
+      - ReadWriteMany
+      resources:
+        requests:
+          storage: ${MYSQL_VOLUME_CAPACITY}
+
+# wordpress mysql secrets 
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: ${SERVICE_NAME}
+    stringData:
+      mysql-host: ${SERVICE_NAME}-mysql
+      mysql-user: ${WORDPRESS_USER}
+      mysql-password: ${WORDPRESS_PASSWORD}
+      mysql-root-password: ${WORDPRESS_PASSWORD}
+      mysql-db-name: ${WORDPRESS_DATABASE_NAME}
+
+# DeploymentConfig: MySQL 
+  - apiVersion: v1
     kind: DeploymentConfig
     metadata:
+      name: ${SERVICE_NAME}-mysql
       labels:
-        app: wordpress
-      name: wordpress
+        app: ${SERVICE_NAME}-mysql
     spec:
       replicas: 1
       selector:
-        app: wordpress
-        deploymentconfig: wordpress
+        name: ${SERVICE_NAME}-mysql
       strategy:
-        activeDeadlineSeconds: 21600
-        resources: {}
-        rollingParams:
-          intervalSeconds: 1
-          maxSurge: 25%
-          maxUnavailable: 25%
-          timeoutSeconds: 600
-          updatePeriodSeconds: 1
+        type: Rolling
       template:
         metadata:
           labels:
-            app: wordpress
-            deploymentconfig: wordpress
+            name: ${SERVICE_NAME}-mysql
         spec:
           containers:
-            - image: 'behroozam/wp-in-production:php7.3'
+          - name: mysql
+            image: mariadb
+            env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: mysql-root-password
+                  name: ${SERVICE_NAME}
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  key: mysql-user
+                  name: ${SERVICE_NAME}
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: mysql-password
+                  name: ${SERVICE_NAME}
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  key: mysql-db-name
+                  name: ${SERVICE_NAME}
+            ports:
+            - containerPort: 3306
+              protocol: TCP
+            resources:
+              limits:
+                memory: ${WORDPRESS_MEMORY}
+            volumeMounts:
+            - name: ${SERVICE_NAME}-mysql
+              mountPath: /var/lib/mysql/
+          dnsPolicy: ClusterFirst
+          restartPolicy: Always
+          volumes:
+          - name: ${SERVICE_NAME}-mysql
+            persistentVolumeClaim:
+              claimName: ${SERVICE_NAME}-mysql
+# Service: MySQL
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app: ${SERVICE_NAME}-mysql
+      name: ${SERVICE_NAME}-mysql
+    spec:
+      ports:
+        - name: 3306-tcp
+          port: 3306
+          protocol: TCP
+          targetPort: 3306
+      selector:
+        deploymentconfig: ${SERVICE_NAME}-mysql
+      sessionAffinity: None
+      type: ClusterIP
+
+#wordpress deployment config      
+  - apiVersion: v1
+    kind: DeploymentConfig
+    metadata:
+      name: ${SERVICE_NAME}-wordpress
+      labels:
+        app: ${SERVICE_NAME}
+    spec:
+      replicas: 1
+      selector:
+        name: ${SERVICE_NAME}-wordpress
+      strategy:
+        type: Rolling
+      template:
+        metadata:
+          labels:
+            name: ${SERVICE_NAME}-wordpress
+        spec:
+          containers:
+            - image: 'behroozam/wp-in-production:${WORDPRESS_IMAGE_VERSION}'
               env:
               - name: MYSQL_USER
                 valueFrom:
                   secretKeyRef:
-                    key: user
-                    name: wordpress-cred
+                    key: mysql-user
+                    name: ${SERVICE_NAME}
               - name: MYSQL_PASSWORD
                 valueFrom:
                   secretKeyRef:
-                    key: password
-                    name: wordpress-cred
+                    key: mysql-password
+                    name: ${SERVICE_NAME}
               - name: MYSQL_DATABASE
                 valueFrom:
                   secretKeyRef:
-                    key: databasename
-                    name: wordpress-cred
+                    key: mysql-db-name
+                    name: ${SERVICE_NAME}
               - name: DB_HOST
                 valueFrom:
                   secretKeyRef:
-                    key: host
-                    name: wordpress-cred
+                    key: mysql-host
+                    name: ${SERVICE_NAME}
               lifecycle:
                 postStart:
                   exec:
-                    command: ["/bin/sh", "-c", "cp -r /server/http/public/. /var/www/html && touch /var/www/html/.env && fix-permission "]
+                    command: ["/bin/sh", "-c", "cp -r /server/http/public/. /var/www/html && fix-permission "]
               imagePullPolicy: Always
-              name: wordpress
+              name: ${SERVICE_NAME}-wordpress
               ports:
                 - containerPort: 9000
                   protocol: TCP
-              readinessProbe:
-                tcpSocket:
-                  port: 9000
-                initialDelaySeconds: 5
-                periodSeconds: 10
-              livenessProbe:
-                tcpSocket:
-                  port: 9000
-                initialDelaySeconds: 15
-                periodSeconds: 20
               resources:
                 limits:
                   memory: "${WORDPRESS_MEMORY}"
-              terminationMessagePath: /dev/termination-log
-              terminationMessagePolicy: File
               volumeMounts:
                 - mountPath: /var/www/html/wp-content
                   name: wp-content-wordpress
                 - mountPath: /var/www/html
                   name: shared-files
+                - mountPath: /usr/local/etc/php/conf.d/custom-php.ini
+                  subPath: custom-php.ini
+                  name: php-config-volume
+                - mountPath: /var/www/html/wp-config.php
+                  subPath: wp-config.php
+                  name: wp-config
+                        
             - image: 'nginxinc/nginx-unprivileged'
               name: nginx
               ports:
                 - containerPort: 8080
                   protocol: TCP
-              readinessProbe:
-                httpGet:
-                  path: /
-                  port: 8080
-                initialDelaySeconds: 10
-                periodSeconds: 10
-              livenessProbe:
-                httpGet:
-                  path: /
-                  port: 8080
-                initialDelaySeconds: 10
-                periodSeconds: 10
               volumeMounts:
                 - mountPath: /var/www/html
                   name: shared-files
+                - mountPath: /var/www/html/wp-content
+                  name: wp-content-wordpress
                 - mountPath: /etc/nginx/nginx.conf
                   subPath: nginx.conf
                   name: nginx-config-volume
+
           volumes:
             - name: wp-content-wordpress
               persistentVolumeClaim:
-                claimName: wp-content-wordpress
+                claimName: ${SERVICE_NAME}-wordpress
             - name: shared-files
               emptyDir: {}
             - name: nginx-config-volume
               configMap:
-                name: nginx-config
+                name: ${SERVICE_NAME}-nginx-config
+            - name: php-config-volume
+              configMap:
+                name: ${SERVICE_NAME}-php-config
+            - name: wp-config
+              configMap:
+                name: ${SERVICE_NAME}-wp-config
+# wordpress app service                
   - apiVersion: v1
     kind: Service
     metadata:
       labels:
-        app: wordpress
-      name: wordpress
+        app: ${SERVICE_NAME}-wordpress
+      name: ${SERVICE_NAME}-wordpress
     spec:
       ports:
         - name: 80-tcp
@@ -157,38 +286,15 @@ objects:
           protocol: TCP
           targetPort: 8080
       selector:
-        deploymentconfig: wordpress
+        deploymentconfig: ${SERVICE_NAME}-wordpress
       sessionAffinity: None
       type: ClusterIP
 
-  - apiVersion: v1
-    kind: PersistentVolumeClaim
-    metadata:
-      labels:
-        app: wordpress
-      finalizers:
-        - kubernetes.io/pvc-protection
-      name: wp-content-wordpress
-    spec:
-      accessModes:
-        - ReadWriteOnce
-      resources:
-        requests:
-          storage: ${WORDPRESS_STORAGE}
-  - apiVersion: v1
-    kind: Secret
-    metadata:
-      name: wordpress-cred
-    type: Opaque
-    stringData:
-      user: "${WORDPRESS_USER}"
-      password: "${WORDPRESS_PASSWORD}"
-      databasename: "${WORDPRESS_DATABASE_NAME}"
-      host: "${WORDPRESS_DATABASE_HOST}"
+# nginx configmap 
   - apiVersion: v1
     kind: ConfigMap
     metadata:
-      name: nginx-config
+      name: ${SERVICE_NAME}-nginx-config
     data:
       nginx.conf: |
         worker_processes  auto;
@@ -245,3 +351,115 @@ objects:
             }
           }
         }
+
+# php.ini config 
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: ${SERVICE_NAME}-php-config
+    data:
+      custom-php.ini: |
+        upload_max_filesize = 512M
+        max_file_uploads = 40
+        max_input_vars = 3000
+        max_executaion_time = 600
+
+#  wordpress config 
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: ${SERVICE_NAME}-wp-config
+    data:
+      wp-config.php: |
+        <?php
+        require_once(__DIR__ . '/vendor/autoload.php');
+        (new \Dotenv\Dotenv(__DIR__.'/'))->load();
+        /**
+         * The base configuration for WordPress
+         *
+         * The wp-config.php creation script uses this file during the
+         * installation. You don't have to use the web site, you can
+         * copy this file to "wp-config.php" and fill in the values.
+         *
+         * This file contains the following configurations:
+         *
+         * * MySQL settings
+         * * Secret keys
+         * * Database table prefix
+         * * ABSPATH
+         *
+         * @link https://codex.wordpress.org/Editing_wp-config.php
+         *
+         * @package WordPress
+         */
+
+        // ** MySQL settings - You can get this info from your web host ** //
+        /** The name of the database for WordPress */
+        define('DB_NAME', getenv('MYSQL_DATABASE'));
+
+        /** MySQL database username */
+        define('DB_USER', getenv('MYSQL_USER'));
+
+        /** MySQL database password */
+        define('DB_PASSWORD', getenv('MYSQL_PASSWORD'));
+
+        /** MySQL hostname */
+        define('DB_HOST', getenv('DB_HOST'));
+
+        /** Database Charset to use in creating database tables. */
+        define( 'DB_CHARSET', 'utf8' );
+
+        /** The Database Collate type. Don't change this if in doubt. */
+        define( 'DB_COLLATE', '' );
+
+        /**#@+
+         * Authentication Unique Keys and Salts.
+         *
+         * Change these to different unique phrases!
+         * You can generate these using the {@link https://api.wordpress.org/secret-key/1.1/salt/ WordPress.org secret-key service}
+         * You can change these at any point in time to invalidate all existing cookies. This will force all users to have to log in again.
+         *
+         * @since 2.6.0
+         */
+        define( 'AUTH_KEY',         'put your unique phrase here' );
+        define( 'SECURE_AUTH_KEY',  'put your unique phrase here' );
+        define( 'LOGGED_IN_KEY',    'put your unique phrase here' );
+        define( 'NONCE_KEY',        'put your unique phrase here' );
+        define( 'AUTH_SALT',        'put your unique phrase here' );
+        define( 'SECURE_AUTH_SALT', 'put your unique phrase here' );
+        define( 'LOGGED_IN_SALT',   'put your unique phrase here' );
+        define( 'NONCE_SALT',       'put your unique phrase here' );
+
+        /**#@-*/
+
+        /**
+         * WordPress Database Table prefix.
+         *
+         * You can have multiple installations in one database if you give each
+         * a unique prefix. Only numbers, letters, and underscores please!
+         */
+        $table_prefix = 'wp_';
+
+        /**
+         * For developers: WordPress debugging mode.
+         *
+         * Change this to true to enable the display of notices during development.
+         * It is strongly recommended that plugin and theme developers use WP_DEBUG
+         * in their development environments.
+         *
+         * For information on other constants that can be used for debugging,
+         * visit the Codex.
+         *
+         * @link https://codex.wordpress.org/Debugging_in_WordPress
+         */
+        define( 'WP_DEBUG', false );
+
+        /* That's all, stop editing! Happy publishing. */
+
+        /** Absolute path to the WordPress directory. */
+        if ( ! defined( 'ABSPATH' ) ) {
+        	define( 'ABSPATH', dirname( __FILE__ ) . '/' );
+        }
+
+        /** Sets up WordPress vars and included files. */
+        require_once( ABSPATH . 'wp-settings.php' );
