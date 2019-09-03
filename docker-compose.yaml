@@ -16,6 +16,7 @@ services:
     working_dir: /var/www
     volumes:
       - wp-files:/var/www/html/
+      - ./wp-config-sample.php:/var/www/html/wp-config.php
     networks:
       - app-network
 
@@ -31,6 +32,7 @@ services:
     volumes:
       - wp-files:/var/www/html/
       - ./nginx/conf.d/:/etc/nginx/conf.d/
+      - ./wp-config-sample.php:/var/www/html/wp-config.php
     networks:
       - app-network
 
@@ -72,15 +74,15 @@ services:
 
 # redis server 
 
-  redis:
-    image: redis
-    container_name: redis
-    restart: unless-stopped
-    tty: true
-    ports:
-      - "6379"
-    networks:
-      - app-network
+#  redis:
+#    image: redis
+#    container_name: redis
+#    restart: unless-stopped
+#    tty: true
+#    ports:
+#      - "6379"
+#    networks:
+#      - app-network
 
 #Docker Networks
 networks:
