@@ -222,7 +222,7 @@ objects:
               lifecycle:
                 postStart:
                   exec:
-                    command: ["/bin/sh", "-c", "cp -r /server/http/public/. /var/www/html && fix-permission "]
+                    command: ["/bin/sh", "-c", "cp -rp /server/http/public/. /var/www/html && fix-permission "]
               imagePullPolicy: Always
               name: ${SERVICE_NAME}-wordpress
               ports:
