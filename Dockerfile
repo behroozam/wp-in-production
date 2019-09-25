@@ -41,15 +41,8 @@ RUN composer install \
 #
 
 FROM php:7.3-fpm-alpine
-RUN docker-php-ext-install mysqli && apk add php7-redis && apk add --no-cache libzip-dev && docker-php-ext-configure zip --with-libzip=/usr/include && docker-php-ext-install zip
-RUN apk add --no-cache  \
-        freetype \
-        freetype-dev \
-        libjpeg-turbo \
-        libjpeg-turbo-dev \
-        libpng \
-        libpng-dev && \
-    docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-jpeg-dir=/usr/include/ --with-png-dir=/usr/include/
+RUN docker-php-ext-install mysqli && apk add php7-redis php7-gd && apk add --no-cache libzip-dev && docker-php-ext-configure zip --with-libzip=/usr/include && docker-php-ext-install zip
+
 COPY --chown=33:88 --from=wordpress  /wordpress/wordpress/ /server/http/public/
 COPY --chown=33:88 --from=vendor /app/vendor/ /server/http/public/vendor/
 COPY ./fix-permission /bin/
