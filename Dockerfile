@@ -42,7 +42,14 @@ RUN composer install \
 
 FROM php:7.3-fpm-alpine
 RUN docker-php-ext-install mysqli && apk add php7-redis php7-gd && apk add --no-cache libzip-dev && docker-php-ext-configure zip --with-libzip=/usr/include && docker-php-ext-install zip
-
+RUN apk add --no-cache freetype libpng libjpeg-turbo freetype-dev libpng-dev libjpeg-turbo-dev && \
+  docker-php-ext-configure gd \
+    --with-gd \
+    --with-freetype-dir=/usr/include/ \
+    --with-png-dir=/usr/include/ \
+    --with-jpeg-dir=/usr/include/ && \
+  NPROC=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || 1) && \
+  docker-php-ext-install -j${NPROC} gd
 COPY --chown=33:88 --from=wordpress  /wordpress/wordpress/ /server/http/public/
 COPY --chown=33:88 --from=vendor /app/vendor/ /server/http/public/vendor/
 COPY ./fix-permission /bin/
