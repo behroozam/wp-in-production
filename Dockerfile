@@ -5,7 +5,7 @@ FROM alpine as wordpress
 
 RUN mkdir /wordpress 
 WORKDIR /wordpress
-RUN wget https://wordpress.org/latest.tar.gz && tar xzvf latest.tar.gz 
+RUN wget https://wordpress.org/latest.tar.gz && tar xzf latest.tar.gz 
 
 
 FROM composer as vendor
