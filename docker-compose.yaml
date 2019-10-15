@@ -3,9 +3,7 @@ services:
 
   # wordpress Service
   wordpress:
-    build:
-      context: ./.
-      dockerfile: Dockerfile
+    build: .
     env_file: .env
     entrypoint: /docker-compose-entrypoint.sh
     restart: unless-stopped
